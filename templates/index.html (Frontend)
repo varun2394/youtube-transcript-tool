@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>YouTube Transcript Tool</title>
+<style>
+body { font-family: Arial; margin: auto; max-width: 900px; padding: 20px; transition: background 0.3s, color 0.3s; }
+.dark { background: #121212; color: #eee; }
+input, select { padding: 10px; margin: 5px; width: 70%; }
+button { padding: 10px 20px; margin: 5px; }
+#output { background: #f4f4f4; padding: 10px; white-space: pre-wrap; max-height: 400px; overflow-y: scroll; }
+.dark #output { background: #1e1e1e; }
+mark { background: yellow; }
+.timestamp { color: #007bff; cursor: pointer; margin-right: 5px; }
+</style>
+</head>
+<body>
+<h1>YouTube Transcript Tool</h1>
+<p>Paste YouTube URL below and get transcript:</p>
+
+<input type="text" id="videoUrl" placeholder="Enter YouTube URL here">
+<select id="lang">
+    <option value="en">English</option>
+    <option value="hi">Hindi</option>
+    <option value="es">Spanish</option>
+    <option value="fr">French</option>
+</select>
+<br>
+<button onclick="getTranscript()">Get Transcript</button>
+<button onclick="downloadTranscript()">Download Transcript</button>
+<button onclick="toggleTheme()">Toggle Dark/Light</button>
+<br>
+<input type="text" id="searchBox" placeholder="Search in transcript">
+<button onclick="searchTranscript()">Search</button>
+<pre id="output"></pre>
+
+<iframe id="ytplayer" width="560" height="315" src="" frameborder="0" allowfullscreen></iframe>
+
+<script>
+let lastTranscript = [];
+let currentVideoURL = "";
+
+function toggleTheme() {
+    document.body.classList.toggle('dark');
+}
+
+async function getTranscript() {
+    const url = document.getElementById("videoUrl").value;
+    const lang = document.getElementById("lang").value;
+    if(!url) return alert("Enter YouTube URL");
+    currentVideoURL = url;
+
+    const response = await fetch("/get_transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, lang })
+    });
+    const data = await response.json();
+    if(data.transcript){
+        lastTranscript = data.transcript;
+        renderTranscript(lastTranscript);
+        const video_id = url.includes("v=") ? url.split("v=")[1].split("&")[0] : url.split("youtu.be/")[1].split("?")[0];
+        document.getElementById("ytplayer").src = `https://www.youtube.com/embed/${video_id}?enablejsapi=1`;
+    } else {
+        document.getElementById("output").textContent = "Error: " + data.error;
+    }
+}
+
+function renderTranscript(transcript) {
+    const output = transcript.map(t => {
+        let seconds = Math.floor(t.start);
+        let min = Math.floor(seconds/60);
+        let sec = seconds%60;
+        const ts = `<span class="timestamp" onclick="jumpTo(${seconds})">[${min}:${sec.toString().padStart(2,'0')}]</span>`;
+        return ts + t.text;
+    }).join("\n");
+    document.getElementById("output").innerHTML = output;
+}
+
+function jumpTo(seconds) {
+    const iframe = document.getElementById("ytplayer");
+    iframe.src = iframe.src.split("?")[0] + `?start=${seconds}&autoplay=1`;
+}
+
+function downloadTranscript() {
+    if(lastTranscript.length==0) return alert("No transcript");
+    const text = lastTranscript.map(t => `[${Math.floor(t.start/60)}:${Math.floor(t.start%60).toString().padStart(2,'0')}] ${t.text}`).join("\n");
+    const blob = new Blob([text], {type:'text/plain'});
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'transcript.txt';
+    link.click();
+}
+
+function searchTranscript() {
+    const keyword = document.getElementById("searchBox").value.trim();
+    if(!keyword) return;
+    const regex = new RegExp(`(${keyword})`, 'gi');
+    const highlighted = lastTranscript.map(t=>{
+        let seconds = Math.floor(t.start);
+        let min = Math.floor(seconds/60);
+        let sec = seconds%60;
+        let ts = `<span class="timestamp" onclick="jumpTo(${seconds})">[${min}:${sec.toString().padStart(2,'0')}]</span>`;
+        return ts + t.text.replace(regex,'<mark>$1</mark>');
+    }).join("\n");
+    document.getElementById("output").innerHTML = highlighted;
+}
+</script>
+</body>
+</html>
