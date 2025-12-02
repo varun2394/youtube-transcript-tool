@@ -1,0 +1,55 @@
+from flask import Flask, request, jsonify, render_template
+from youtube_transcript_api import YouTubeTranscriptApi
+import requests
+
+app = Flask(__name__)
+TRANSLATE_API = "https://libretranslate.com/translate"
+
+@app.route('/')
+def home():
+    return render_template('index.html')
+
+@app.route('/get_transcript', methods=['POST'])
+def get_transcript():
+    data = request.json
+    video_url = data.get('url')
+    target_lang = data.get('lang', 'en')
+
+    if not video_url:
+        return jsonify({"error": "No URL provided"}), 400
+
+    try:
+        # Extract video ID
+        if "v=" in video_url:
+            video_id = video_url.split("v=")[1].split("&")[0]
+        elif "youtu.be/" in video_url:
+            video_id = video_url.split("youtu.be/")[1].split("?")[0]
+        else:
+            return jsonify({"error": "Invalid YouTube URL"}), 400
+
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        transcript_ts = [{"start": t['start'], "text": t['text']} for t in transcript_list]
+
+        # Translate if target_lang != 'en'
+        if target_lang != 'en':
+            combined_text = " ".join([t['text'] for t in transcript_list])
+            response = requests.post(TRANSLATE_API, data={
+                "q": combined_text,
+                "source": "en",
+                "target": target_lang,
+                "format": "text"
+            })
+            translated_text = response.json().get("translatedText", combined_text)
+            # Split approx for each line
+            words = translated_text.split()
+            avg_len = max(1, len(words)//len(transcript_ts))
+            for i, t in enumerate(transcript_ts):
+                t['text'] = " ".join(words[i*avg_len:(i+1)*avg_len])
+
+        return jsonify({"transcript": transcript_ts})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
